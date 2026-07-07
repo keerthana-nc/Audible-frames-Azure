@@ -1,10 +1,10 @@
-# =============================================================================
-# requirements.txt — pinned dependencies for Audible Frames (Azure)
+# ==============================================================================
+# requirements.txt -- pinned dependencies for Audible Frames (Azure)
 # Python 3.11
 #
 # HOW TO USE:
 #   pip install -r requirements.txt
-#   python tests/smoke_test.py   ← run this after installing to verify
+#   python tests/smoke_test.py   <- run this after installing to verify
 #
 # PINNING STRATEGY:
 #   Exact versions are pinned to prevent "works on my machine" problems.
@@ -13,79 +13,79 @@
 #
 # KNOWN BREAKAGE POINTS TO WATCH:
 #   1. pydantic v1 vs v2: FastAPI 0.100+ requires pydantic v2. Do NOT
-#      downgrade pydantic — it will silently break request validation.
+#      downgrade pydantic -- it will silently break request validation.
 #   2. azure-cognitiveservices-speech: installs an OS-specific wheel.
 #      Windows gets the Windows wheel automatically. If install fails,
 #      check https://pypi.org/project/azure-cognitiveservices-speech/
 #   3. openai: use the modern AzureOpenAI() client (1.x). The old
 #      openai.ChatCompletion.create() style is removed in 1.x.
-# =============================================================================
+# ==============================================================================
 
 
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Web framework
-# FastAPI: the API server. Pydantic v2 is a hard dependency — don't downgrade.
+# FastAPI: the API server. Pydantic v2 is a hard dependency -- don't downgrade.
 # uvicorn: the ASGI server that actually runs FastAPI (like Apache for Django).
 # python-multipart: required for FastAPI to accept file uploads (images).
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 pydantic==2.10.3
 python-multipart==0.0.20
 
-# HTTP client — used in tests to make requests to the running FastAPI app.
+# HTTP client -- used in tests to make requests to the running FastAPI app.
 httpx==0.28.1
 
 # Reads .env files into environment variables at app startup.
 python-dotenv==1.0.1
 
-# Image handling — open, validate, and resize images before sending to Azure.
+# Image handling -- open, validate, and resize images before sending to Azure.
 pillow==11.1.0
 
 
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Azure SDKs
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
-# Azure AI Vision (Image Analysis v4) — dense captions, OCR, object detection.
+# Azure AI Vision (Image Analysis v4) -- dense captions, OCR, object detection.
 azure-ai-vision-imageanalysis==1.0.0
 
-# Azure Identity — lets the app authenticate to Azure using credentials
+# Azure Identity -- lets the app authenticate to Azure using credentials
 # from the environment (API key, managed identity, etc.).
 azure-identity==1.19.0
 
-# Azure AI Content Safety — Phase 4: check images and text for unsafe content.
+# Azure AI Content Safety -- Phase 4: check images and text for unsafe content.
 azure-ai-contentsafety==1.0.0
 
-# Azure AI Speech — neural text-to-speech.
+# Azure AI Speech -- neural text-to-speech.
 # WINDOWS NOTE: pip installs a Windows-specific wheel automatically.
 # If this fails, try: pip install azure-cognitiveservices-speech --upgrade
 azure-cognitiveservices-speech==1.41.1
 
 
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # OpenAI (pointed at Azure endpoint)
 # The openai package supports Azure OpenAI natively via AzureOpenAI().
-# We use the 1.x client (modern) — NOT the deprecated ChatCompletion style.
-# -----------------------------------------------------------------------------
+# We use the 1.x client (modern) -- NOT the deprecated ChatCompletion style.
+# ------------------------------------------------------------------------------
 openai==1.57.0
 
 
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Testing
 # pytest: the test runner.
 # pytest-asyncio: lets pytest run async test functions (our FastAPI endpoints
 #   are async, so tests need to be async too).
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 pytest==8.3.4
 pytest-asyncio==0.24.0
 
 
-# -----------------------------------------------------------------------------
-# Evaluation — Phase 3
+# ------------------------------------------------------------------------------
+# Evaluation -- Phase 3
 # nltk: provides the METEOR metric.
 # rouge-score: provides the ROUGE-L metric.
 # Both are used in evals/run_eval.py to measure caption quality vs. baseline.
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 nltk==3.9.1
 rouge-score==0.1.2
