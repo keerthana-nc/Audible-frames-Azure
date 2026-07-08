@@ -3,18 +3,23 @@ vision.py -- Azure AI Vision (Image Analysis) integration.
 
 PURPOSE
 -------
-Sends an image to Azure AI Vision and gets back:
-  1. Dense captions  -- natural-language descriptions of what's in the image
-                        e.g. ["a person sitting at a desk", "a laptop with code on screen"]
-  2. OCR text        -- any printed/handwritten text found in the image
-                        e.g. "def main():"
+Sends an image to Azure AI Vision and returns:
+  1. Caption  -- one natural-language sentence describing the whole scene
+                 e.g. "a developer sitting at a desk working on a laptop"
+  2. Tags     -- list of objects/concepts detected with high confidence
+                 e.g. ["laptop", "person", "coffee", "indoor"]
+  3. OCR text -- any printed or handwritten text found in the image
+                 e.g. "def main():"
 
-WHY TWO THINGS?
----------------
-Dense captions tell us WHAT'S IN the scene (objects, people, actions).
-OCR text tells us WHAT'S WRITTEN in the scene (signs, code, labels).
-Both together give GPT (in captioner.py) the full picture to write a
-rich, accurate description for a screen-reader user.
+WHY CAPTION + TAGS (not DenseCaptions)?
+----------------------------------------
+DenseCaptions describes multiple regions of the image but is only available
+in a handful of Azure regions. CAPTION (single image-level caption) + TAGS
+are available in ALL regions including East US 2, and together give GPT
+rich context to write a good description:
+  - Caption tells GPT the overall scene
+  - Tags add detail about individual objects
+  - OCR adds any text visible in the image
 
 AZURE SDK
 ---------
@@ -24,92 +29,96 @@ Docs: https://learn.microsoft.com/azure/ai-services/computer-vision/
 
 import os
 
-# ImageAnalysisClient is the main class we use to talk to Azure AI Vision.
 from azure.ai.vision.imageanalysis import ImageAnalysisClient
-
-# VisualFeatures is an enum that tells Azure WHAT to analyze in the image.
-# We request DENSE_CAPTIONS (scene descriptions) and READ (OCR text).
 from azure.ai.vision.imageanalysis.models import VisualFeatures
-
-# AzureKeyCredential wraps our API key in a format the SDK expects.
 from azure.core.credentials import AzureKeyCredential
 
 
 class VisionClient:
     """
-    Wraps Azure AI Vision to extract captions and text from an image.
+    Wraps Azure AI Vision to extract a caption, tags, and text from an image.
 
     Usage:
         client = VisionClient()
         result = client.analyze(image_bytes)
-        # result = {"captions": ["a cat on a sofa"], "ocr_text": "OPEN"}
+        # result = {
+        #   "captions": ["a developer at a desk", "Also detected: laptop, coffee, indoor"],
+        #   "ocr_text": "def main():"
+        # }
     """
 
     def __init__(self):
         """
-        Initialize the Azure AI Vision client using credentials from environment variables.
-
-        We read from env vars (not hardcode) so:
-          - Credentials never end up in code or git history
-          - Switching to a different Azure resource is a .env change, not a code change
+        Initialize the Azure AI Vision client from environment variables.
+        Credentials are never hardcoded -- always read from .env.
         """
-        endpoint = os.environ["AZURE_VISION_ENDPOINT"]
-        key = os.environ["AZURE_VISION_KEY"]
-
-        # Create the Azure AI Vision client.
-        # AzureKeyCredential(key) wraps the key string in a credential object the SDK requires.
         self.client = ImageAnalysisClient(
-            endpoint=endpoint,
-            credential=AzureKeyCredential(key),
+            endpoint=os.environ["AZURE_VISION_ENDPOINT"],
+            credential=AzureKeyCredential(os.environ["AZURE_VISION_KEY"]),
         )
 
     def analyze(self, image_bytes: bytes) -> dict:
         """
-        Send raw image bytes to Azure AI Vision and return structured results.
+        Send image bytes to Azure AI Vision and return structured results.
 
         Args:
-            image_bytes: The image to analyze, as raw bytes (JPEG, PNG, BMP, GIF, TIFF).
-                         Max size: 4MB (Azure limit for Image Analysis).
+            image_bytes: Raw image bytes (JPEG, PNG, BMP, GIF, TIFF). Max 4MB.
 
         Returns:
             {
-                "captions": ["a cat sitting on a sofa", "a window with sunlight"],
-                "ocr_text": "OPEN DAILY 9am-5pm"   # empty string if no text found
+                "captions": [
+                    "a developer sitting at a desk with a laptop",  # from CAPTION
+                    "Also detected: laptop, person, coffee, indoor" # from TAGS
+                ],
+                "ocr_text": "def main():"  # from READ (empty string if no text)
             }
         """
-        # Call Azure AI Vision with the image data.
-        # visual_features tells Azure which analyses to run.
-        # DENSE_CAPTIONS: describe the overall scene and prominent regions in natural language.
-        # READ: OCR -- extract any printed or handwritten text from the image.
+        # Request three visual features from Azure:
+        #   CAPTION  -- one sentence describing the whole image
+        #   TAGS     -- list of objects/concepts detected (car, sky, person, etc.)
+        #   READ     -- OCR: any text visible in the image
+        #
+        # Note: DENSE_CAPTIONS is NOT used here because it's only available in
+        # select Azure regions. CAPTION + TAGS work everywhere including East US 2.
         result = self.client.analyze(
             image_data=image_bytes,
-            visual_features=[VisualFeatures.DENSE_CAPTIONS, VisualFeatures.READ],
+            visual_features=[
+                VisualFeatures.CAPTION,
+                VisualFeatures.TAGS,
+                VisualFeatures.READ,
+            ],
         )
 
-        # --- Extract dense captions ---
-        # result.dense_captions.list is a list of Caption objects.
-        # Each has a .text (the description) and a .confidence (0.0 to 1.0).
-        # We only keep captions with decent confidence to avoid noise.
-        captions = []
-        if result.dense_captions and result.dense_captions.list:
-            for cap in result.dense_captions.list:
-                # confidence threshold: only keep captions Azure is reasonably sure about
-                if cap.confidence >= 0.5:
-                    captions.append(cap.text)
+        context_pieces = []
+
+        # --- Extract the main caption ---
+        # result.caption is a single Caption object with .text and .confidence.
+        # confidence is between 0.0 and 1.0 -- we only use it if Azure is reasonably sure.
+        if result.caption and result.caption.confidence >= 0.4:
+            context_pieces.append(result.caption.text)
+
+        # --- Extract tags ---
+        # Tags are individual objects, concepts, or scene attributes Azure detected.
+        # We filter by confidence (>= 0.7) and take the top 8 to keep the prompt concise.
+        if result.tags and result.tags.list:
+            high_conf_tags = [
+                t.name
+                for t in result.tags.list
+                if t.confidence >= 0.7
+            ][:8]
+            if high_conf_tags:
+                # Format as a supplementary line for GPT to incorporate.
+                context_pieces.append("Also detected: " + ", ".join(high_conf_tags))
 
         # --- Extract OCR text ---
-        # result.read.blocks is a list of text regions in the image.
-        # Each block has lines, and each line has words.
-        # We join all lines into a single string.
+        # result.read.blocks is a list of text regions; each has lines.
         ocr_lines = []
         if result.read and result.read.blocks:
             for block in result.read.blocks:
                 for line in block.lines:
                     ocr_lines.append(line.text)
 
-        ocr_text = " ".join(ocr_lines)
-
         return {
-            "captions": captions,
-            "ocr_text": ocr_text,
+            "captions": context_pieces,
+            "ocr_text": " ".join(ocr_lines),
         }

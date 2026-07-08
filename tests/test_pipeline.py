@@ -59,37 +59,32 @@ class TestVisionClient:
 
     def test_analyze_returns_captions_and_ocr_keys(self):
         """
-        The analyze() method must always return a dict with 'captions' and 'ocr_text'
-        keys, even if Azure returns empty data.
+        analyze() must always return a dict with 'captions' and 'ocr_text' keys,
+        even if Azure returns empty data.
         """
         with patch("src.vision.ImageAnalysisClient") as MockClient:
-            # Set up a fake Vision result with one caption and no OCR text.
+            # Set up a fake Vision result using CAPTION (not DenseCaptions).
             mock_result = MagicMock()
-            mock_cap = MagicMock()
-            mock_cap.text = "a cat sitting on a sofa"
-            mock_cap.confidence = 0.95
-            mock_result.dense_captions.list = [mock_cap]
-            mock_result.read = None  # no text in this image
+            mock_result.caption.text = "a cat sitting on a sofa"
+            mock_result.caption.confidence = 0.95
+            mock_result.tags = None
+            mock_result.read = None
 
-            # Make the mock client's analyze() return our fake result.
             MockClient.return_value.analyze.return_value = mock_result
 
             from src.vision import VisionClient
-            client = VisionClient()
-            result = client.analyze(b"fake_image_bytes")
+            result = VisionClient().analyze(b"fake_image_bytes")
 
-        # The result must have both keys regardless of Azure's response.
         assert "captions" in result, "Result must contain 'captions' key"
         assert "ocr_text" in result, "Result must contain 'ocr_text' key"
 
     def test_analyze_returns_caption_text(self):
-        """Captions from Azure should appear in the returned captions list."""
+        """The main caption from Azure should appear in the returned captions list."""
         with patch("src.vision.ImageAnalysisClient") as MockClient:
             mock_result = MagicMock()
-            mock_cap = MagicMock()
-            mock_cap.text = "a developer working on a laptop"
-            mock_cap.confidence = 0.92
-            mock_result.dense_captions.list = [mock_cap]
+            mock_result.caption.text = "a developer working on a laptop"
+            mock_result.caption.confidence = 0.92
+            mock_result.tags = None
             mock_result.read = None
             MockClient.return_value.analyze.return_value = mock_result
 
@@ -98,36 +93,59 @@ class TestVisionClient:
 
         assert "a developer working on a laptop" in result["captions"]
 
-    def test_analyze_filters_low_confidence_captions(self):
+    def test_analyze_filters_low_confidence_caption(self):
         """
-        Captions with confidence below 0.5 should be filtered out.
+        A caption with confidence below 0.4 should be excluded.
         Low-confidence captions add noise to the GPT prompt.
         """
         with patch("src.vision.ImageAnalysisClient") as MockClient:
             mock_result = MagicMock()
-            high_conf = MagicMock()
-            high_conf.text = "a dog in a park"
-            high_conf.confidence = 0.85  # above threshold -- keep
-            low_conf = MagicMock()
-            low_conf.text = "possibly a bird or something"
-            low_conf.confidence = 0.3   # below threshold -- discard
-            mock_result.dense_captions.list = [high_conf, low_conf]
+            mock_result.caption.text = "blurry indistinct shape"
+            mock_result.caption.confidence = 0.2  # below 0.4 threshold -- discard
+            mock_result.tags = None
             mock_result.read = None
             MockClient.return_value.analyze.return_value = mock_result
 
             from src.vision import VisionClient
             result = VisionClient().analyze(b"fake_bytes")
 
-        assert "a dog in a park" in result["captions"]
-        assert "possibly a bird or something" not in result["captions"]
+        assert "blurry indistinct shape" not in result["captions"]
+
+    def test_analyze_includes_high_confidence_tags(self):
+        """Tags with confidence >= 0.7 should appear in the captions list."""
+        with patch("src.vision.ImageAnalysisClient") as MockClient:
+            mock_result = MagicMock()
+            mock_result.caption = None
+
+            # High-confidence tag -- should be included
+            tag_high = MagicMock()
+            tag_high.name = "laptop"
+            tag_high.confidence = 0.98
+
+            # Low-confidence tag -- should be excluded
+            tag_low = MagicMock()
+            tag_low.name = "spaceship"
+            tag_low.confidence = 0.2
+
+            mock_result.tags.list = [tag_high, tag_low]
+            mock_result.read = None
+            MockClient.return_value.analyze.return_value = mock_result
+
+            from src.vision import VisionClient
+            result = VisionClient().analyze(b"fake_bytes")
+
+        # The tags line should contain "laptop" but not "spaceship"
+        tags_line = " ".join(result["captions"])
+        assert "laptop" in tags_line
+        assert "spaceship" not in tags_line
 
     def test_analyze_extracts_ocr_text(self):
         """Text found in the image via OCR should appear in ocr_text."""
         with patch("src.vision.ImageAnalysisClient") as MockClient:
             mock_result = MagicMock()
-            mock_result.dense_captions = None
+            mock_result.caption = None
+            mock_result.tags = None
 
-            # Mock the OCR block structure: blocks -> lines -> text
             mock_line = MagicMock()
             mock_line.text = "OPEN DAILY"
             mock_block = MagicMock()
@@ -151,14 +169,13 @@ class TestCaptioner:
     def test_describe_returns_string(self):
         """describe() must return a non-empty string for any valid vision output."""
         with patch("src.captioner.AzureOpenAI") as MockOpenAI:
-            # Set up a fake GPT response.
+            # GPT-5.4-mini uses the Responses API -- mock response.output_text
             mock_response = MagicMock()
-            mock_response.choices[0].message.content = "A cat rests on a comfortable sofa."
-            MockOpenAI.return_value.chat.completions.create.return_value = mock_response
+            mock_response.output_text = "A cat rests on a comfortable sofa."
+            MockOpenAI.return_value.responses.create.return_value = mock_response
 
             from src.captioner import Captioner
-            captioner = Captioner()
-            result = captioner.describe({
+            result = Captioner().describe({
                 "captions": ["a cat on a sofa"],
                 "ocr_text": ""
             })
@@ -168,17 +185,13 @@ class TestCaptioner:
         assert result == "A cat rests on a comfortable sofa."
 
     def test_describe_handles_empty_vision_output(self):
-        """
-        describe() must not crash if vision returned nothing.
-        (e.g. if the image was too dark or ambiguous for Vision to detect anything)
-        """
+        """describe() must not crash if vision returned nothing."""
         with patch("src.captioner.AzureOpenAI") as MockOpenAI:
             mock_response = MagicMock()
-            mock_response.choices[0].message.content = "No visual content could be detected."
-            MockOpenAI.return_value.chat.completions.create.return_value = mock_response
+            mock_response.output_text = "No visual content could be detected."
+            MockOpenAI.return_value.responses.create.return_value = mock_response
 
             from src.captioner import Captioner
-            # This should NOT raise an exception even with empty inputs.
             result = Captioner().describe({"captions": [], "ocr_text": ""})
 
         assert isinstance(result, str)
@@ -187,14 +200,13 @@ class TestCaptioner:
         """GPT must be called with the deployment name from the env var."""
         with patch("src.captioner.AzureOpenAI") as MockOpenAI:
             mock_response = MagicMock()
-            mock_response.choices[0].message.content = "A scene."
-            MockOpenAI.return_value.chat.completions.create.return_value = mock_response
+            mock_response.output_text = "A scene."
+            MockOpenAI.return_value.responses.create.return_value = mock_response
 
             from src.captioner import Captioner
             Captioner().describe({"captions": ["something"], "ocr_text": ""})
 
-            # Check that the model argument passed to GPT matches our env var.
-            call_kwargs = MockOpenAI.return_value.chat.completions.create.call_args[1]
+            call_kwargs = MockOpenAI.return_value.responses.create.call_args[1]
             assert call_kwargs["model"] == "gpt-5.4-mini"
 
 
@@ -207,27 +219,23 @@ class TestSpeechClient:
 
     def test_synthesize_returns_bytes(self):
         """synthesize() must return bytes (the WAV audio data)."""
+        # We now use audio_config=None so the SDK returns audio via result.audio_data.
+        # No temp file is written -- no PathLib or AudioOutputConfig needed.
         with patch("src.speech.speechsdk.SpeechConfig"), \
-             patch("src.speech.speechsdk.audio.AudioOutputConfig"), \
-             patch("src.speech.speechsdk.SpeechSynthesizer") as MockSynth, \
-             patch("src.speech.pathlib.Path") as MockPath:
+             patch("src.speech.speechsdk.SpeechSynthesizer") as MockSynth:
 
-            # Fake a successful synthesis result.
             import azure.cognitiveservices.speech as speechsdk
             mock_result = MagicMock()
             mock_result.reason = speechsdk.ResultReason.SynthesizingAudioCompleted
+            # audio_data is what the SDK returns when audio_config=None
+            mock_result.audio_data = b"fake_wav_audio_data"
             MockSynth.return_value.speak_text_async.return_value.get.return_value = mock_result
-
-            # Fake the temp file read -- return some bytes.
-            mock_path_instance = MagicMock()
-            mock_path_instance.read_bytes.return_value = b"fake_audio_data"
-            mock_path_instance.exists.return_value = True
-            MockPath.return_value = mock_path_instance
 
             from src.speech import SpeechClient
             audio = SpeechClient().synthesize("Hello, this is a test.")
 
         assert isinstance(audio, bytes), "synthesize() must return bytes"
+        assert audio == b"fake_wav_audio_data"
 
 
 # ===========================================================================

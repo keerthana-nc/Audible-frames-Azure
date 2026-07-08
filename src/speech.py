@@ -3,141 +3,112 @@ speech.py -- Azure AI Speech (Text-to-Speech) integration.
 
 PURPOSE
 -------
-Takes a text description (from captioner.py) and converts it to audio using
-Azure's neural TTS voices. Returns raw audio bytes (WAV format) that the API
-can send directly to the client.
+Takes a text description and converts it to audio using Azure's neural TTS.
+Returns raw WAV bytes that the API can stream directly to the browser.
 
-WHY NEURAL TTS?
----------------
-Older TTS systems sound robotic and are tiring to listen to. Azure's neural
-voices are trained on real human speech and sound natural -- important for an
-assistive tech app where users may listen to many descriptions per day.
+WINDOWS FILE LOCK FIX
+----------------------
+The original version wrote audio to a temp file then read+deleted it.
+On Windows, the Speech SDK keeps a file handle open after synthesis completes,
+so deleting immediately causes [WinError 32] "file in use by another process."
 
-Voice: en-US-AriaNeural -- a clear, natural English voice well-suited for
-accessibility. Can be changed via env var for future internationalization.
+The fix: use audio_config=None so the SDK returns audio bytes directly in
+result.audio_data -- no temp file, no file locking, no cleanup needed.
 
 OUTPUT FORMAT
 -------------
-WAV (PCM audio) -- lossless, universally supported by browsers, media players,
-and screen readers. No encoding step needed, so it's simpler and faster than MP3.
-
-CLEANUP
--------
-This module writes audio to a temporary file on disk (the Speech SDK requires
-a file path or stream to write to). The temp file is always deleted in a
-`finally` block -- even if synthesis fails -- so no run leaves audio files
-behind that accumulate on disk.
+Default: Riff16Khz16BitMonoPcm -- a standard WAV file (with header).
+Universally supported by browsers, media players, and screen readers.
+The <audio> element in the UI plays this as audio/wav.
 
 AZURE SDK
 ---------
 Package: azure-cognitiveservices-speech
-Windows: pip installs the correct Windows-specific wheel automatically.
 """
 
 import os
-import pathlib
-import tempfile
-
-# The Azure Speech SDK is imported as `speechsdk` (conventional alias).
 import azure.cognitiveservices.speech as speechsdk
 
 
 class SpeechClient:
     """
-    Wraps Azure AI Speech to convert text to audio.
+    Wraps Azure AI Speech to convert text to WAV audio bytes.
 
     Usage:
         client = SpeechClient()
-        audio_bytes = client.synthesize("Hello, this is a description.")
-        # audio_bytes is raw WAV audio you can write to a file or send over HTTP
+        audio_bytes = client.synthesize("A developer sits at a desk.")
+        # audio_bytes is a valid WAV file in bytes -- send it over HTTP or play it
     """
 
     def __init__(self):
         """
-        Initialize the Speech client with credentials from environment variables.
+        Initialize the Speech client from environment variables.
 
-        AZURE_SPEECH_KEY    -- your Azure Speech resource key
-        AZURE_SPEECH_REGION -- the region your Speech resource is in (e.g. "eastus2")
-                               Note: the Speech SDK uses the region string, NOT an endpoint URL.
+        AZURE_SPEECH_KEY    -- API key for your Azure Speech resource
+        AZURE_SPEECH_REGION -- region string, e.g. "eastus2"
+                               (the SDK constructs the endpoint from this internally)
         """
-        speech_key = os.environ["AZURE_SPEECH_KEY"]
-        speech_region = os.environ["AZURE_SPEECH_REGION"]
-
-        # SpeechConfig holds all the settings for the synthesizer.
-        # We pass the key and region -- the SDK constructs the endpoint internally.
         self.speech_config = speechsdk.SpeechConfig(
-            subscription=speech_key,
-            region=speech_region,
+            subscription=os.environ["AZURE_SPEECH_KEY"],
+            region=os.environ["AZURE_SPEECH_REGION"],
         )
 
-        # Choose the TTS voice. AriaNeural is natural-sounding and widely used
-        # for accessibility applications.
-        # Full list of voices: https://learn.microsoft.com/azure/ai-services/speech-service/language-support
+        # Choose the TTS voice.
+        # AriaNeural is a natural-sounding English voice, well-rated for accessibility.
         voice = os.environ.get("AZURE_SPEECH_VOICE", "en-US-AriaNeural")
         self.speech_config.speech_synthesis_voice_name = voice
 
+        # Output format: standard WAV with header (16kHz, 16-bit mono PCM).
+        # This is the default when audio_config=None, stated here explicitly for clarity.
+        # The browser's <audio> element plays this as audio/wav without any conversion.
+        self.speech_config.set_speech_synthesis_output_format(
+            speechsdk.SpeechSynthesisOutputFormat.Riff16Khz16BitMonoPcm
+        )
+
     def synthesize(self, text: str) -> bytes:
         """
-        Convert text to speech and return the audio as bytes.
+        Convert text to speech and return WAV audio as bytes.
 
-        The SDK writes audio to a temporary WAV file, then we read those bytes
-        and delete the file. This is the most reliable cross-platform approach.
+        We pass audio_config=None so the SDK collects audio data in memory
+        and returns it via result.audio_data. This avoids writing a temp file,
+        which on Windows causes a file-locking error when we try to delete it.
 
         Args:
-            text: The description to speak aloud. Should be 1-5 sentences.
+            text: The description to speak. Typically 2-4 sentences.
 
         Returns:
-            Raw WAV audio bytes. Can be sent directly as an HTTP response
-            with Content-Type: audio/wav.
+            Valid WAV audio bytes (includes WAV file header).
+            Can be sent as-is with Content-Type: audio/wav.
 
         Raises:
-            RuntimeError: If Azure Speech synthesis fails or is cancelled.
+            RuntimeError: If Azure cancels or fails the synthesis.
         """
-        # Create a temporary file path with a .wav extension.
-        # tempfile.mktemp() gives us a unique path -- it doesn't create the file yet,
-        # just reserves a name. The SDK will create the file when it writes audio.
-        tmp_path = pathlib.Path(tempfile.mktemp(suffix=".wav"))
+        # audio_config=None tells the SDK: don't write to a file or audio device.
+        # Instead, accumulate all audio in result.audio_data (bytes).
+        # This completely avoids file I/O and the Windows file-locking problem.
+        synthesizer = speechsdk.SpeechSynthesizer(
+            speech_config=self.speech_config,
+            audio_config=None,  # <-- key: in-memory, no temp file
+        )
 
-        try:
-            # AudioOutputConfig tells the SDK WHERE to write the audio.
-            # filename= means: write audio to this file on disk.
-            audio_config = speechsdk.audio.AudioOutputConfig(filename=str(tmp_path))
+        # speak_text_async() sends the text to Azure.
+        # .get() blocks until the entire audio has been received.
+        result = synthesizer.speak_text_async(text).get()
 
-            # SpeechSynthesizer is the main TTS object.
-            # It needs both the config (voice, format) and where to write output.
-            synthesizer = speechsdk.SpeechSynthesizer(
-                speech_config=self.speech_config,
-                audio_config=audio_config,
+        if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            # result.audio_data contains the complete WAV file as bytes.
+            # No files to clean up -- everything stayed in memory.
+            return bytes(result.audio_data)
+
+        elif result.reason == speechsdk.ResultReason.Canceled:
+            details = result.cancellation_details
+            raise RuntimeError(
+                f"Speech synthesis cancelled. "
+                f"Reason: {details.reason}. "
+                f"Error: {details.error_details}. "
+                f"Check AZURE_SPEECH_KEY and AZURE_SPEECH_REGION in .env."
             )
-
-            # speak_text_async() sends the text to Azure and starts synthesis.
-            # .get() blocks until synthesis is complete (or fails).
-            result = synthesizer.speak_text_async(text).get()
-
-            # Check the result reason to know if it worked.
-            if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-                # Success -- read the audio file and return its bytes.
-                return tmp_path.read_bytes()
-
-            elif result.reason == speechsdk.ResultReason.Canceled:
-                # Azure cancelled the request -- usually a credentials or quota issue.
-                # cancellation_details has the specific reason and error message.
-                details = result.cancellation_details
-                raise RuntimeError(
-                    f"Speech synthesis was cancelled. "
-                    f"Reason: {details.reason}. "
-                    f"Error details: {details.error_details}. "
-                    f"Check your AZURE_SPEECH_KEY and AZURE_SPEECH_REGION in .env."
-                )
-            else:
-                raise RuntimeError(
-                    f"Speech synthesis failed with unexpected reason: {result.reason}"
-                )
-
-        finally:
-            # ALWAYS clean up the temp file, even if synthesis raised an exception.
-            # This is what `finally` is for -- it runs no matter what.
-            # Without this, every failed run would leave a .wav file on disk.
-            if tmp_path.exists():
-                tmp_path.unlink()
-                # .unlink() is pathlib's way of deleting a file (equivalent to os.remove())
+        else:
+            raise RuntimeError(
+                f"Speech synthesis failed. Reason code: {result.reason}"
+            )

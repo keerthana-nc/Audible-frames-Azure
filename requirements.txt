@@ -68,7 +68,7 @@ azure-cognitiveservices-speech==1.41.1
 # The openai package supports Azure OpenAI natively via AzureOpenAI().
 # We use the 1.x client (modern) -- NOT the deprecated ChatCompletion style.
 # ------------------------------------------------------------------------------
-openai==1.57.0
+openai==2.44.0
 
 
 # ------------------------------------------------------------------------------
