@@ -13,10 +13,17 @@
 
 ## Eval results
 
-| Metric   | HuggingFace baseline | Azure pipeline | Improvement |
-|----------|----------------------|----------------|-------------|
-| METEOR   | —                    | —              | TBD (Phase 3) |
-| ROUGE-L  | —                    | —              | TBD (Phase 3) |
+Evaluated on 30 MS COCO 2017 validation images with 5 human reference captions each.  
+Baseline: `nlpconnect/vit-gpt2-image-captioning` (local HuggingFace model, no API cost).
+
+| Metric   | HuggingFace baseline | Azure pipeline | Δ |
+|----------|----------------------|----------------|---|
+| METEOR   | 0.3613               | 0.3766         | **+4.2%** |
+| ROUGE-L  | 0.4665               | 0.2460         | -47.3% |
+
+**Why ROUGE-L is lower:** ROUGE-L measures the longest common subsequence between generated and reference captions. Human COCO references are short and generic (e.g. *"a woman walking down a street with a pigeon"*). The Azure pipeline produces long, detailed descriptions (e.g. *"A woman sits on a bench outdoors, facing a small group of pigeons on the ground in front of her. The scene is in black and white..."*). Longer, richer text scores lower on ROUGE-L even when it is objectively more useful — which is why METEOR (which accounts for synonyms and word alignment) and LLM-as-judge are better signals for accessibility-focused captioning.
+
+**LLM-as-judge** (GPT-5.4-mini rating accuracy / completeness / usefulness 1–5): Azure pipeline consistently rated higher than baseline on all three dimensions across all 30 images. See `evals/results/` for full per-image breakdowns.
 
 ## Live demo
 

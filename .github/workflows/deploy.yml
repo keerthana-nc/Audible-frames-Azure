@@ -1,0 +1,111 @@
+# .github/workflows/deploy.yml
+#
+# CD: builds a Docker image and deploys to Azure Container Apps on every push to main.
+#
+# WHAT HAPPENS ON EVERY PUSH TO MAIN:
+#   1. Tests run first (test.yml) -- deploy only proceeds if tests pass
+#   2. Log in to Azure Container Registry (ACR)
+#   3. Build the Docker image
+#   4. Push image to ACR (tagged with the git commit SHA for traceability)
+#   5. Tell Azure Container Apps to use the new image
+#
+# AZURE RESOURCES REQUIRED (create these before this workflow will work):
+#   - Azure Container Registry (ACR)         -- stores Docker images
+#   - Azure Container Apps Environment       -- the compute environment
+#   - Azure Container App                    -- the running instance of the app
+#   - Azure Service Principal                -- allows GitHub to authenticate to Azure
+#
+# GITHUB SECRETS REQUIRED (Settings → Secrets → Actions → New repository secret):
+#   AZURE_CREDENTIALS          -- JSON from: az ad sp create-for-rbac --sdk-auth
+#   ACR_LOGIN_SERVER           -- e.g. audibleframesacr.azurecr.io
+#   ACR_USERNAME               -- ACR username (from Azure Portal → ACR → Access keys)
+#   ACR_PASSWORD               -- ACR password (same place)
+#   AZURE_SUBSCRIPTION_ID      -- Your Azure subscription ID
+#   AZURE_RG                   -- Resource group name (e.g. Audible-Frames-azure)
+#   CONTAINER_APP_NAME         -- Name of your Container App (e.g. audible-frames-app)
+#   CONTAINER_APP_ENV_NAME     -- Name of your Container Apps Environment
+#
+# APP SECRETS (also add as GitHub secrets -- injected as env vars at deploy time):
+#   AZURE_OPENAI_ENDPOINT
+#   AZURE_OPENAI_API_KEY
+#   AZURE_OPENAI_DEPLOYMENT_NAME
+#   AZURE_OPENAI_API_VERSION
+#   AZURE_VISION_ENDPOINT
+#   AZURE_VISION_KEY
+#   AZURE_SPEECH_KEY
+#   AZURE_SPEECH_REGION
+#   AZURE_CONTENT_SAFETY_ENDPOINT
+#   AZURE_CONTENT_SAFETY_KEY
+#   APPLICATIONINSIGHTS_CONNECTION_STRING
+
+name: Deploy to Azure Container Apps
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    needs: []       # runs after test.yml passes (enforced by branch protection rules)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Login to Azure ────────────────────────────────────────────────────────
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # ── Build and push Docker image ───────────────────────────────────────────
+      - name: Log in to Azure Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # Tag with both "latest" and the git commit SHA.
+          # "latest" is used by Container Apps; SHA lets you trace exactly
+          # which commit is running in production.
+          tags: |
+            ${{ secrets.ACR_LOGIN_SERVER }}/audible-frames:latest
+            ${{ secrets.ACR_LOGIN_SERVER }}/audible-frames:${{ github.sha }}
+
+      # ── Deploy to Azure Container Apps ────────────────────────────────────────
+      - name: Deploy to Azure Container Apps
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          acrName: ${{ secrets.ACR_LOGIN_SERVER }}
+          containerAppName: ${{ secrets.CONTAINER_APP_NAME }}
+          resourceGroup: ${{ secrets.AZURE_RG }}
+          containerAppEnvironment: ${{ secrets.CONTAINER_APP_ENV_NAME }}
+          targetPort: 8000
+          ingress: external
+          imageToDeploy: ${{ secrets.ACR_LOGIN_SERVER }}/audible-frames:${{ github.sha }}
+          # Inject all app secrets as environment variables inside the container.
+          # These replace your .env file in production.
+          environmentVariables: |
+            AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}
+            AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }}
+            AZURE_OPENAI_DEPLOYMENT_NAME=${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
+            AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}
+            AZURE_VISION_ENDPOINT=${{ secrets.AZURE_VISION_ENDPOINT }}
+            AZURE_VISION_KEY=${{ secrets.AZURE_VISION_KEY }}
+            AZURE_SPEECH_KEY=${{ secrets.AZURE_SPEECH_KEY }}
+            AZURE_SPEECH_REGION=${{ secrets.AZURE_SPEECH_REGION }}
+            AZURE_CONTENT_SAFETY_ENDPOINT=${{ secrets.AZURE_CONTENT_SAFETY_ENDPOINT }}
+            AZURE_CONTENT_SAFETY_KEY=${{ secrets.AZURE_CONTENT_SAFETY_KEY }}
+            APPLICATIONINSIGHTS_CONNECTION_STRING=${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+
+      - name: Deployment summary
+        run: |
+          echo "Deployed commit ${{ github.sha }} to ${{ secrets.CONTAINER_APP_NAME }}"
+          echo "Image: ${{ secrets.ACR_LOGIN_SERVER }}/audible-frames:${{ github.sha }}"

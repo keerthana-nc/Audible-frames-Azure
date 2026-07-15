@@ -1,48 +1,81 @@
 # =============================================================================
-# Dockerfile — audible-frames-azure
+# Dockerfile -- audible-frames-azure
 #
-# What this does:
-#   Packages the entire app into a self-contained image that can run anywhere
-#   (your laptop, Azure Container Apps, any cloud) without needing Python or
-#   packages installed separately.
+# Packages the FastAPI app into a Docker image that runs identically on your
+# laptop, in CI, and in Azure Container Apps.
 #
-# STATUS: Phase 1 skeleton — fully fleshed out in Phase 6 (CI/CD).
-#   Phase 6 will add: non-root user (security), health checks, build args.
+# HOW TO BUILD LOCALLY (for testing):
+#   docker build -t audible-frames .
+#   docker run -p 8000:8000 --env-file .env audible-frames
+#   Open http://localhost:8000
+#
+# The GitHub Actions workflow (deploy.yml) builds and pushes this automatically
+# on every push to main.
 # =============================================================================
 
-# ── Base image ────────────────────────────────────────────────────────────────
-# python:3.11-slim is the official Python 3.11 image on a minimal Debian base.
-# "slim" means it has Python but strips out docs, compilers, and test files
-# to keep the image small (~50MB vs ~300MB for the full image).
-FROM python:3.11-slim
+# ── Stage 1: build ────────────────────────────────────────────────────────────
+# We use a two-stage build:
+#   Stage 1 (builder): installs all packages including build tools
+#   Stage 2 (runtime): copies only the installed packages -- no build tools
+# Result: smaller final image (build tools like gcc can be ~200MB)
+FROM python:3.11-slim AS builder
 
-# ── Working directory ─────────────────────────────────────────────────────────
-# All commands below run relative to /app inside the container.
-# This is the conventional location for app code in Docker images.
+WORKDIR /build
+
+# Install build tools needed to compile some Python packages
+# (azure-cognitiveservices-speech needs ssl headers)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first so Docker can cache this layer.
+# If requirements.txt hasn't changed, pip install is skipped on next build.
+COPY requirements.txt .
+
+# Install into a local folder (/install) so we can copy just this folder
+# to the runtime stage -- leaves build tools behind.
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+
+# ── Stage 2: runtime ──────────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
 WORKDIR /app
 
-# ── Install dependencies ───────────────────────────────────────────────────────
-# Copy requirements.txt FIRST (before the rest of the code).
-# Why: Docker caches each layer. If requirements.txt hasn't changed, Docker
-# skips the pip install step entirely — saves minutes on every rebuild.
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Runtime system dependencies for Azure Speech SDK
+# libasound2: audio library (Speech SDK needs it even for in-memory synthesis)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libasound2 \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
 
-# ── Copy source code ──────────────────────────────────────────────────────────
-# Copy everything else after pip install so code changes don't invalidate
-# the pip cache layer above.
-COPY . .
+# Copy installed Python packages from builder stage
+COPY --from=builder /install /usr/local
 
-# ── Port ──────────────────────────────────────────────────────────────────────
-# FastAPI will listen on port 8000. EXPOSE documents this — it doesn't
-# actually open the port; that's done by Azure Container Apps or docker run.
+# Copy application source code
+# .dockerignore excludes: venv/, .env, __pycache__, evals/dataset/images/
+COPY src/ ./src/
+
+# ── Security: non-root user ────────────────────────────────────────────────────
+# Running as root inside a container is a security risk.
+# If the app is compromised, an attacker would have root inside the container.
+# This creates a minimal user with no login shell and no home directory.
+RUN useradd --system --no-create-home --shell /bin/false appuser
+USER appuser
+
+# ── Health check ───────────────────────────────────────────────────────────────
+# Docker and Azure Container Apps both use this to decide if the container
+# is healthy. If /health returns non-200 three times in a row, the container
+# is restarted automatically.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+
+# ── Port ───────────────────────────────────────────────────────────────────────
 EXPOSE 8000
 
-# ── Start command ─────────────────────────────────────────────────────────────
-# uvicorn runs the FastAPI app.
-#   src.api:app  → the `app` variable inside src/api.py
-#   --host 0.0.0.0  → listen on all network interfaces (required in containers)
-#   --port 8000     → match the EXPOSE above
-#
-# Phase 6 will add: --workers, proper signal handling, non-root user.
-CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
+# ── Start command ──────────────────────────────────────────────────────────────
+# --workers 2: two parallel worker processes (handles concurrent requests better)
+# --host 0.0.0.0: listen on all interfaces (required inside containers)
+# --port 8000: match EXPOSE
+CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

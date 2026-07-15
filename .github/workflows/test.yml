@@ -1,0 +1,54 @@
+# .github/workflows/test.yml
+#
+# CI: runs unit tests on every pull request and every push to main.
+#
+# WHY THIS EXISTS:
+#   Before any code merges or deploys, we want to know all 11 unit tests pass.
+#   This runs automatically -- you don't have to remember to run pytest manually.
+#
+# WHAT IT DOES:
+#   1. Checks out your code
+#   2. Sets up Python 3.11
+#   3. Installs dependencies
+#   4. Runs pytest (all tests use mocked Azure calls -- no real API keys needed)
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"          # caches pip downloads between runs (faster CI)
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        # Tests use mocked Azure clients -- no real credentials needed in CI.
+        # The AZURE_* env vars below are dummy values just to satisfy env checks.
+        env:
+          AZURE_OPENAI_ENDPOINT: https://dummy.openai.azure.com/
+          AZURE_OPENAI_API_KEY: dummy-key
+          AZURE_OPENAI_DEPLOYMENT_NAME: gpt-5.4-mini
+          AZURE_OPENAI_API_VERSION: 2025-03-01-preview
+          AZURE_VISION_ENDPOINT: https://dummy.cognitiveservices.azure.com/
+          AZURE_VISION_KEY: dummy-key
+          AZURE_SPEECH_KEY: dummy-key
+          AZURE_SPEECH_REGION: eastus2
+          AZURE_CONTENT_SAFETY_ENDPOINT: https://dummy.cognitiveservices.azure.com/
+          AZURE_CONTENT_SAFETY_KEY: dummy-key
+        run: pytest tests/ -v --tb=short

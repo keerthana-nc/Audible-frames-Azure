@@ -82,6 +82,16 @@ pytest-asyncio==0.24.0
 
 
 # ------------------------------------------------------------------------------
+# Azure Monitor -- Phase 5
+# Sends logs, traces, and custom events to Azure Application Insights.
+# Optional at runtime -- if APPLICATIONINSIGHTS_CONNECTION_STRING is not set,
+# telemetry is silently disabled (so local dev works without it).
+# ------------------------------------------------------------------------------
+azure-monitor-opentelemetry-exporter==1.0.0b33
+opentelemetry-sdk==1.29.0
+
+
+# ------------------------------------------------------------------------------
 # Evaluation -- Phase 3
 # nltk: provides the METEOR metric.
 # rouge-score: provides the ROUGE-L metric.

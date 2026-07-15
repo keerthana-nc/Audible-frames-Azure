@@ -1,0 +1,25 @@
+# ==============================================================================
+# evals/requirements_eval.txt -- packages needed ONLY for running evaluations.
+#
+# These are NOT installed in the Docker container (they'd add ~3GB).
+# Install them locally only when you want to run evals:
+#
+#   pip install -r evals/requirements_eval.txt
+#
+# Why separate from requirements.txt?
+#   torch alone is ~2GB. The production API doesn't need it -- only the eval
+#   harness does. Keeping it separate means the Docker image stays small.
+# ==============================================================================
+
+# HuggingFace model inference (the baseline captioning model)
+torch>=2.3.0
+transformers>=4.41.0
+
+# Dataset loading (COCO captions from HuggingFace Hub)
+datasets>=2.20.0
+
+# Image handling (already in requirements.txt but listed here for completeness)
+pillow>=11.0.0
+
+# HTTP requests (for downloading images)
+requests>=2.31.0

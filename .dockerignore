@@ -1,0 +1,40 @@
+# .dockerignore -- files Docker should NOT copy into the image.
+# Keeps the image small and prevents secrets from leaking in.
+
+# Secrets -- NEVER go in an image
+.env
+.env.*
+!.env.example
+
+# Virtual environment -- image uses its own pip install
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.py[cod]
+
+# Test files -- not needed at runtime
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Eval files -- large and not needed at runtime
+evals/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db

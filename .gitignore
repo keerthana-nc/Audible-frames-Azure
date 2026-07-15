@@ -64,6 +64,8 @@ coverage.xml
 # The README will summarize the numbers; the raw files stay local.
 # -----------------------------------------------------------------------------
 evals/results/
+evals/dataset/images/
+evals/dataset/captions.json
 
 # -----------------------------------------------------------------------------
 # Distribution / packaging artifacts

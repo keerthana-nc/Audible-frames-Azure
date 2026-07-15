@@ -29,6 +29,7 @@ import time
 from src.vision import VisionClient
 from src.captioner import Captioner
 from src.speech import SpeechClient
+from src.content_safety import ContentSafetyChecker, ContentSafetyError
 
 
 def run_pipeline(image_bytes: bytes) -> dict:
@@ -57,6 +58,15 @@ def run_pipeline(image_bytes: bytes) -> dict:
     """
     timings = {}
 
+    # --- Step 0: Azure AI Content Safety ---
+    # Check the image for harmful content BEFORE sending it to any AI model.
+    # ContentSafetyError is raised here if the image is rejected -- the caller
+    # (api.py) catches it and returns a 400 error to the user.
+    t0 = time.monotonic()
+    checker = ContentSafetyChecker()
+    checker.check_image(image_bytes)   # raises ContentSafetyError if unsafe
+    timings["safety_ms"] = round((time.monotonic() - t0) * 1000)
+
     # --- Step 1: Azure AI Vision ---
     # Send the image to Azure and get back what's in it.
     t0 = time.monotonic()
@@ -84,8 +94,13 @@ def run_pipeline(image_bytes: bytes) -> dict:
     audio_bytes = speech_client.synthesize(description)
     timings["speech_ms"] = round((time.monotonic() - t0) * 1000)
 
-    # Total is the sum of all three steps.
-    timings["total_ms"] = timings["vision_ms"] + timings["captioner_ms"] + timings["speech_ms"]
+    # Total is the sum of all steps including safety check.
+    timings["total_ms"] = (
+        timings["safety_ms"]
+        + timings["vision_ms"]
+        + timings["captioner_ms"]
+        + timings["speech_ms"]
+    )
 
     return {
         "description": description,

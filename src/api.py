@@ -24,9 +24,15 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import Response, HTMLResponse
 
 from src.pipeline import run_pipeline
+from src.content_safety import ContentSafetyError
+from src.telemetry import setup_telemetry, track_pipeline_request, track_safety_rejection
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+# Set up Application Insights if connection string is configured.
+# Safe to call even if the env var is missing -- it just skips silently.
+setup_telemetry()
 
 ALLOWED_CONTENT_TYPES = {
     "image/jpeg", "image/jpg", "image/png",
@@ -414,15 +420,43 @@ async def describe_image(file: UploadFile = File(...)):
 
     try:
         result = run_pipeline(image_bytes)
+
+    except ContentSafetyError as exc:
+        # Image failed content safety check -- return 400, not 500.
+        # 400 = "bad request" (the image itself is the problem, not our code).
+        logger.warning(f"Content safety rejection for {file.filename}: {exc}")
+        track_safety_rejection(file.filename, exc.categories)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Image rejected by content safety filter: {str(exc)}",
+        )
+
     except Exception as exc:
         logger.error(f"Pipeline failed: {exc}", exc_info=True)
+        track_pipeline_request(
+            filename=file.filename,
+            file_size_bytes=len(image_bytes),
+            timing={},
+            description_length=0,
+            success=False,
+            error=str(exc),
+        )
         raise HTTPException(status_code=500, detail=f"Pipeline error: {str(exc)}")
 
     logger.info(
-        f"Done -- vision={result['timing']['vision_ms']}ms "
+        f"Done -- safety={result['timing'].get('safety_ms', 0)}ms "
+        f"vision={result['timing']['vision_ms']}ms "
         f"gpt={result['timing']['captioner_ms']}ms "
         f"speech={result['timing']['speech_ms']}ms "
         f"total={result['timing']['total_ms']}ms"
+    )
+
+    track_pipeline_request(
+        filename=file.filename,
+        file_size_bytes=len(image_bytes),
+        timing=result["timing"],
+        description_length=len(result["description"]),
+        success=True,
     )
 
     return Response(
