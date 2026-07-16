@@ -27,7 +27,9 @@ Baseline: `nlpconnect/vit-gpt2-image-captioning` (local HuggingFace model, no AP
 
 ## Live demo
 
-*URL coming in Phase 6 after deployment.*
+**https://audible-frames-app.salmonflower-7eea7334.eastus2.azurecontainerapps.io/docs**
+
+Upload any image to the `/describe` endpoint and get back a natural-language audio description.
 
 ---
 
