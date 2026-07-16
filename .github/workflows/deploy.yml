@@ -83,7 +83,7 @@ jobs:
       - name: Deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v1
         with:
-          acrName: ${{ secrets.ACR_LOGIN_SERVER }}
+          acrName: audibleframesacr
           containerAppName: ${{ secrets.CONTAINER_APP_NAME }}
           resourceGroup: ${{ secrets.AZURE_RG }}
           containerAppEnvironment: ${{ secrets.CONTAINER_APP_ENV_NAME }}
