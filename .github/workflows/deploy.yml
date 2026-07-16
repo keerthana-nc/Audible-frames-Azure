@@ -81,31 +81,65 @@ jobs:
 
       # ── Deploy to Azure Container Apps ────────────────────────────────────────
       - name: Deploy to Azure Container Apps
-        uses: azure/container-apps-deploy-action@v1
-        with:
-          acrName: audibleframesacr
-          containerAppName: ${{ secrets.CONTAINER_APP_NAME }}
-          resourceGroup: ${{ secrets.AZURE_RG }}
-          containerAppEnvironment: ${{ secrets.CONTAINER_APP_ENV_NAME }}
-          targetPort: 8000
-          ingress: external
-          imageToDeploy: ${{ secrets.ACR_LOGIN_SERVER }}/audible-frames:${{ github.sha }}
-          # Inject all app secrets as environment variables inside the container.
-          # These replace your .env file in production.
-          environmentVariables: |
-            AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}
-            AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }}
-            AZURE_OPENAI_DEPLOYMENT_NAME=${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
-            AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}
-            AZURE_VISION_ENDPOINT=${{ secrets.AZURE_VISION_ENDPOINT }}
-            AZURE_VISION_KEY=${{ secrets.AZURE_VISION_KEY }}
-            AZURE_SPEECH_KEY=${{ secrets.AZURE_SPEECH_KEY }}
-            AZURE_SPEECH_REGION=${{ secrets.AZURE_SPEECH_REGION }}
-            AZURE_CONTENT_SAFETY_ENDPOINT=${{ secrets.AZURE_CONTENT_SAFETY_ENDPOINT }}
-            AZURE_CONTENT_SAFETY_KEY=${{ secrets.AZURE_CONTENT_SAFETY_KEY }}
-            APPLICATIONINSIGHTS_CONNECTION_STRING=${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
-
-      - name: Deployment summary
         run: |
-          echo "Deployed commit ${{ github.sha }} to ${{ secrets.CONTAINER_APP_NAME }}"
+          IMAGE="${{ secrets.ACR_LOGIN_SERVER }}/audible-frames:${{ github.sha }}"
+          ENV_VARS="AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }} \
+            AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }} \
+            AZURE_OPENAI_DEPLOYMENT_NAME=${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }} \
+            AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }} \
+            AZURE_VISION_ENDPOINT=${{ secrets.AZURE_VISION_ENDPOINT }} \
+            AZURE_VISION_KEY=${{ secrets.AZURE_VISION_KEY }} \
+            AZURE_SPEECH_KEY=${{ secrets.AZURE_SPEECH_KEY }} \
+            AZURE_SPEECH_REGION=${{ secrets.AZURE_SPEECH_REGION }} \
+            AZURE_CONTENT_SAFETY_ENDPOINT=${{ secrets.AZURE_CONTENT_SAFETY_ENDPOINT }} \
+            AZURE_CONTENT_SAFETY_KEY=${{ secrets.AZURE_CONTENT_SAFETY_KEY }} \
+            APPLICATIONINSIGHTS_CONNECTION_STRING=${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}"
+
+          # Check if Container App already exists
+          EXISTS=$(az containerapp show \
+            --name ${{ secrets.CONTAINER_APP_NAME }} \
+            --resource-group ${{ secrets.AZURE_RG }} \
+            --query name -o tsv 2>/dev/null || echo "")
+
+          if [ -z "$EXISTS" ]; then
+            echo "Creating Container App..."
+            az containerapp create \
+              --name ${{ secrets.CONTAINER_APP_NAME }} \
+              --resource-group ${{ secrets.AZURE_RG }} \
+              --environment ${{ secrets.CONTAINER_APP_ENV_NAME }} \
+              --image "$IMAGE" \
+              --registry-server ${{ secrets.ACR_LOGIN_SERVER }} \
+              --registry-username ${{ secrets.ACR_USERNAME }} \
+              --registry-password ${{ secrets.ACR_PASSWORD }} \
+              --target-port 8000 \
+              --ingress external \
+              --min-replicas 0 \
+              --max-replicas 3 \
+              --env-vars \
+                AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
+                AZURE_OPENAI_API_KEY="${{ secrets.AZURE_OPENAI_API_KEY }}" \
+                AZURE_OPENAI_DEPLOYMENT_NAME="${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}" \
+                AZURE_OPENAI_API_VERSION="${{ secrets.AZURE_OPENAI_API_VERSION }}" \
+                AZURE_VISION_ENDPOINT="${{ secrets.AZURE_VISION_ENDPOINT }}" \
+                AZURE_VISION_KEY="${{ secrets.AZURE_VISION_KEY }}" \
+                AZURE_SPEECH_KEY="${{ secrets.AZURE_SPEECH_KEY }}" \
+                AZURE_SPEECH_REGION="${{ secrets.AZURE_SPEECH_REGION }}" \
+                AZURE_CONTENT_SAFETY_ENDPOINT="${{ secrets.AZURE_CONTENT_SAFETY_ENDPOINT }}" \
+                AZURE_CONTENT_SAFETY_KEY="${{ secrets.AZURE_CONTENT_SAFETY_KEY }}" \
+                APPLICATIONINSIGHTS_CONNECTION_STRING="${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}"
+          else
+            echo "Updating existing Container App..."
+            az containerapp update \
+              --name ${{ secrets.CONTAINER_APP_NAME }} \
+              --resource-group ${{ secrets.AZURE_RG }} \
+              --image "$IMAGE"
+          fi
+
+      - name: Get Container App URL
+        run: |
+          URL=$(az containerapp show \
+            --name ${{ secrets.CONTAINER_APP_NAME }} \
+            --resource-group ${{ secrets.AZURE_RG }} \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          echo "✅ Live at: https://$URL"
           echo "Image: ${{ secrets.ACR_LOGIN_SERVER }}/audible-frames:${{ github.sha }}"
