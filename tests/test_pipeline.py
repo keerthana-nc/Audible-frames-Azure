@@ -247,10 +247,12 @@ class TestPipeline:
 
     def test_run_pipeline_returns_expected_keys(self):
         """run_pipeline() must return a dict with description, audio_bytes, and timing."""
-        with patch("src.pipeline.VisionClient") as MockVision, \
+        with patch("src.pipeline.ContentSafetyChecker") as MockSafety, \
+             patch("src.pipeline.VisionClient") as MockVision, \
              patch("src.pipeline.Captioner") as MockCaptioner, \
              patch("src.pipeline.SpeechClient") as MockSpeech:
 
+            MockSafety.return_value.check_image.return_value = {}
             MockVision.return_value.analyze.return_value = {
                 "captions": ["a test image"],
                 "ocr_text": ""
@@ -269,10 +271,12 @@ class TestPipeline:
 
     def test_run_pipeline_timing_has_all_keys(self):
         """Timing dict must include per-step and total milliseconds."""
-        with patch("src.pipeline.VisionClient") as MockVision, \
+        with patch("src.pipeline.ContentSafetyChecker") as MockSafety, \
+             patch("src.pipeline.VisionClient") as MockVision, \
              patch("src.pipeline.Captioner") as MockCaptioner, \
              patch("src.pipeline.SpeechClient") as MockSpeech:
 
+            MockSafety.return_value.check_image.return_value = {}
             MockVision.return_value.analyze.return_value = {"captions": [], "ocr_text": ""}
             MockCaptioner.return_value.describe.return_value = "A scene."
             MockSpeech.return_value.synthesize.return_value = b"audio"
@@ -281,6 +285,7 @@ class TestPipeline:
             result = run_pipeline(b"img")
 
         timing = result["timing"]
+        assert "safety_ms" in timing
         assert "vision_ms" in timing
         assert "captioner_ms" in timing
         assert "speech_ms" in timing
