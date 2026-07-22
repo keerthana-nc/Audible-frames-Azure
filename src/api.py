@@ -64,210 +64,246 @@ UI_HTML = """
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Audible Frames</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #141414;
+      --surface:  #1e1e1e;
+      --border:   #2a2a2a;
+      --gold:     #c9a84c;
+      --gold-dim: #7a6230;
+      --text:     #f0ede6;
+      --muted:    #6b6560;
+    }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #0f1117;
-      color: #e8eaf0;
-      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 40px 20px;
+      justify-content: center;
+      padding: 24px 16px;
     }
 
-    h1 {
-      font-size: 1.8rem;
-      font-weight: 700;
-      margin-bottom: 6px;
-      background: linear-gradient(90deg, #60a5fa, #a78bfa);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+    /* ── Header ── */
+    header {
+      width: 100%;
+      max-width: 660px;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 20px;
     }
 
-    .subtitle {
-      color: #6b7280;
-      font-size: 0.9rem;
-      margin-bottom: 40px;
+    header h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--gold);
     }
 
-    /* --- Chat window --- */
+    header p {
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+
+    /* ── Chat window ── */
     .chat-window {
       width: 100%;
-      max-width: 680px;
-      background: #1a1d27;
-      border-radius: 16px;
-      border: 1px solid #2d3148;
-      overflow: hidden;
+      max-width: 660px;
+      height: 68vh;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
       display: flex;
       flex-direction: column;
-      min-height: 420px;
+      overflow: hidden;
     }
 
+    /* thin gold line at the very top */
+    .chat-window::before {
+      content: "";
+      display: block;
+      height: 2px;
+      background: var(--gold);
+      flex-shrink: 0;
+    }
+
+    /* ── Messages ── */
     .messages {
       flex: 1;
-      padding: 24px;
+      padding: 20px;
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 16px;
       overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
     }
 
-    /* A single chat bubble */
     .bubble {
-      max-width: 85%;
-      padding: 14px 18px;
-      border-radius: 14px;
-      line-height: 1.5;
-      font-size: 0.95rem;
+      max-width: 80%;
+      padding: 12px 16px;
+      border-radius: 3px;
+      font-size: 0.92rem;
+      line-height: 1.55;
     }
 
-    /* System messages (left side, grey) */
+    /* system / AI — left */
     .bubble.system {
-      background: #252840;
+      background: var(--bg);
+      border: 1px solid var(--border);
       align-self: flex-start;
-      border-bottom-left-radius: 4px;
+      color: var(--text);
     }
 
-    /* User messages (right side, blue) */
+    /* user — right, gold tint */
     .bubble.user {
-      background: #1d4ed8;
+      background: #1f1a0e;
+      border: 1px solid var(--gold-dim);
       align-self: flex-end;
-      border-bottom-right-radius: 4px;
+      color: var(--gold);
     }
 
-    /* Result bubble with description + audio player */
+    /* image thumbnail inside user bubble */
+    .bubble.user img {
+      display: block;
+      max-width: 220px;
+      max-height: 160px;
+      object-fit: cover;
+      border-radius: 2px;
+      margin-top: 8px;
+      border: 1px solid var(--gold-dim);
+    }
+
+    /* result bubble */
     .bubble.result {
-      background: #1a2740;
-      border: 1px solid #2d4a7a;
+      background: var(--bg);
+      border: 1px solid var(--border);
       align-self: flex-start;
-      border-bottom-left-radius: 4px;
-      width: 85%;
+      width: 80%;
     }
 
     .bubble.result .label {
-      font-size: 0.75rem;
-      color: #60a5fa;
+      font-size: 0.7rem;
+      color: var(--gold);
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.08em;
       margin-bottom: 8px;
     }
 
-    .bubble.result .description-text {
-      color: #e2e8f0;
+    .bubble.result .desc {
+      color: var(--text);
       margin-bottom: 14px;
-      line-height: 1.6;
+      line-height: 1.65;
     }
 
     audio {
       width: 100%;
-      height: 36px;
-      border-radius: 8px;
-      accent-color: #60a5fa;
+      height: 32px;
+      accent-color: var(--gold);
     }
 
-    /* Error bubble */
+    /* error */
     .bubble.error {
-      background: #3b1a1a;
-      border: 1px solid #7f1d1d;
-      color: #fca5a5;
+      background: #1a0e0e;
+      border: 1px solid #4a1a1a;
+      color: #c47070;
       align-self: flex-start;
     }
 
-    /* Loading dots animation */
+    /* loading */
     .bubble.loading {
-      background: #252840;
+      background: var(--bg);
+      border: 1px solid var(--border);
       align-self: flex-start;
-      color: #6b7280;
+      color: var(--muted);
+      font-size: 1.2rem;
+      letter-spacing: 0.15em;
     }
 
-    .dots span {
-      animation: blink 1.4s infinite;
-      font-size: 1.4rem;
-      line-height: 0;
+    @keyframes blink {
+      0%, 80%, 100% { opacity: 0.15; }
+      40%           { opacity: 1; }
     }
+    .dots span { animation: blink 1.4s infinite; }
     .dots span:nth-child(2) { animation-delay: 0.2s; }
     .dots span:nth-child(3) { animation-delay: 0.4s; }
-    @keyframes blink {
-      0%, 80%, 100% { opacity: 0; }
-      40% { opacity: 1; }
-    }
 
-    /* --- Input bar at the bottom --- */
+    /* ── Input bar ── */
     .input-bar {
-      padding: 16px;
-      border-top: 1px solid #2d3148;
+      padding: 14px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--bg);
       display: flex;
       align-items: center;
-      gap: 12px;
-      background: #13151f;
+      gap: 10px;
     }
 
-    /* Hidden real file input */
     #file-input { display: none; }
 
-    /* Styled upload button */
     .upload-btn {
       flex-shrink: 0;
-      padding: 10px 18px;
-      background: #252840;
-      border: 1px solid #3d4270;
-      color: #c4c9e8;
-      border-radius: 10px;
+      padding: 8px 14px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 3px;
       cursor: pointer;
-      font-size: 0.9rem;
+      font-size: 0.83rem;
       white-space: nowrap;
-      transition: background 0.15s;
+      transition: border-color 0.12s, color 0.12s;
     }
-    .upload-btn:hover { background: #2d3160; }
+    .upload-btn:hover { border-color: var(--gold); color: var(--gold); }
 
-    /* Shows the selected file name */
     #file-name {
       flex: 1;
-      font-size: 0.85rem;
-      color: #6b7280;
+      font-size: 0.82rem;
+      color: var(--muted);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    /* Send / describe button */
     #send-btn {
       flex-shrink: 0;
-      padding: 10px 22px;
-      background: linear-gradient(135deg, #3b82f6, #6366f1);
-      color: white;
+      padding: 8px 20px;
+      background: var(--gold);
+      color: #0e0c07;
       border: none;
-      border-radius: 10px;
+      border-radius: 3px;
       cursor: pointer;
-      font-size: 0.9rem;
+      font-size: 0.88rem;
       font-weight: 600;
-      transition: opacity 0.15s;
+      letter-spacing: 0.02em;
+      transition: opacity 0.12s;
     }
-    #send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-    #send-btn:not(:disabled):hover { opacity: 0.88; }
+    #send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    #send-btn:not(:disabled):hover { opacity: 0.82; }
   </style>
 </head>
 <body>
 
-  <h1>Audible Frames</h1>
-  <p class="subtitle">Upload an image — get a spoken description back</p>
+  <header>
+    <h1>Audible Frames</h1>
+    <p>image → spoken description</p>
+  </header>
 
   <div class="chat-window">
     <div class="messages" id="messages">
-      <!-- Initial greeting from the system -->
       <div class="bubble system">
-        Hi! I turn images into audio descriptions for people who are blind or
-        have low vision. Upload any photo and I'll describe what's in it.
+        Send me any image and I'll describe what's in it as audio — built for
+        people who are blind or have low vision.
       </div>
     </div>
 
     <div class="input-bar">
-      <!-- Clicking the styled button triggers the hidden real file input -->
-      <label class="upload-btn" for="file-input">Choose image</label>
+      <label class="upload-btn" for="file-input">+ image</label>
       <input type="file" id="file-input" accept="image/*" />
-      <span id="file-name">No file chosen</span>
+      <span id="file-name">no file chosen</span>
       <button id="send-btn" disabled>Describe</button>
     </div>
   </div>
@@ -278,78 +314,62 @@ UI_HTML = """
     const sendBtn    = document.getElementById("send-btn");
     const messages   = document.getElementById("messages");
 
-    // Helper: add a chat bubble to the messages area and scroll to it.
     function addBubble(html, cssClass) {
       const div = document.createElement("div");
       div.className = "bubble " + cssClass;
       div.innerHTML = html;
       messages.appendChild(div);
-      // Scroll to the bottom so the newest message is always visible.
       messages.scrollTop = messages.scrollHeight;
       return div;
     }
 
-    // When the user picks a file, enable the Describe button and show the file name.
     fileInput.addEventListener("change", () => {
       const file = fileInput.files[0];
-      if (file) {
-        fileNameEl.textContent = file.name;
-        sendBtn.disabled = false;
-      }
+      if (!file) return;
+      fileNameEl.textContent = file.name;
+      sendBtn.disabled = false;
     });
 
-    // When the user clicks Describe:
     sendBtn.addEventListener("click", async () => {
       const file = fileInput.files[0];
       if (!file) return;
 
-      // Show the user's image name as a "sent" bubble on the right.
-      addBubble("Image: <strong>" + file.name + "</strong>", "user");
+      // Show image thumbnail in user bubble
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        addBubble(
+          "<strong>" + file.name + "</strong>" +
+          '<img src="' + e.target.result + '" alt="uploaded image" />',
+          "user"
+        );
+      };
+      reader.readAsDataURL(file);
 
-      // Show a loading indicator while we wait for Azure.
       const loadingBubble = addBubble(
         '<span class="dots"><span>.</span><span>.</span><span>.</span></span>',
         "loading"
       );
-
-      // Disable the button while the request is in flight.
       sendBtn.disabled = true;
 
       try {
-        // Build a FormData object with the image file.
-        // This is what POST /describe expects (multipart/form-data).
         const form = new FormData();
         form.append("file", file);
-
-        // Call POST /describe.
         const response = await fetch("/describe", { method: "POST", body: form });
-
-        // Remove the loading indicator now that we have a response.
         loadingBubble.remove();
 
         if (!response.ok) {
-          // The server returned an error -- show it in a red bubble.
           const errData = await response.json().catch(() => ({}));
-          addBubble(
-            "Error " + response.status + ": " + (errData.detail || response.statusText),
-            "error"
-          );
+          addBubble("Error " + response.status + ": " + (errData.detail || response.statusText), "error");
           return;
         }
 
-        // The response body is WAV audio bytes.
-        // We convert them to a Blob and create a local URL for the <audio> element.
-        // This plays the audio right in the browser -- no download needed.
         const audioBlob = await response.blob();
         const audioUrl  = URL.createObjectURL(audioBlob);
+        const description = response.headers.get("X-Description") || "";
 
-        // Get the text description from the custom response header.
-        const description = response.headers.get("X-Description") || "(no description)";
-
-        // Build a result bubble with the text and an audio player.
-        const bubble = addBubble(
+        addBubble(
           '<div class="label">Description</div>' +
-          '<div class="description-text">' + description + '</div>' +
+          '<div class="desc">' + description + '</div>' +
           '<audio controls autoplay src="' + audioUrl + '"></audio>',
           "result"
         );
@@ -358,7 +378,6 @@ UI_HTML = """
         loadingBubble.remove();
         addBubble("Network error: " + err.message, "error");
       } finally {
-        // Re-enable the button so the user can try another image.
         sendBtn.disabled = false;
       }
     });
