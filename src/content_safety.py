@@ -123,7 +123,7 @@ class ContentSafetyChecker:
 
         # Collect severity scores for each of the four categories
         scores = {
-            result.category.value: result.severity
+            str(result.category): result.severity
             for result in response.categories_analysis
         }
 
